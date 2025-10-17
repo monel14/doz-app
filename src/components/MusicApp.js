@@ -15,6 +15,7 @@ import { testAPI } from '../utils/apiTest';
 import audioCache from '../services/audioCache';
 import MusicPlayer from './MusicPlayer';
 import PlaylistManager from './PlaylistManager';
+import YouTubePlayerInfo from './YouTubePlayerInfo';
 
 const MusicApp = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,7 +26,7 @@ const MusicApp = () => {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setLoading(true);
     try {
       const results = await musicAPI.searchMusic(searchQuery);
@@ -43,23 +44,36 @@ const MusicApp = () => {
 
   const testAPIConnection = async () => {
     Alert.alert(
-      'Test API',
+      'Test YouTube',
       'Quel test voulez-vous effectuer ?',
       [
-        { text: 'Connexion', onPress: async () => {
-          const result = await testAPI.testConnection();
-          Alert.alert(
-            result.success ? 'Succès' : 'Erreur',
-            result.success ? 'API connectée !' : result.error
-          );
-        }},
-        { text: 'Recherche', onPress: async () => {
-          const result = await testAPI.testSearch('test');
-          Alert.alert(
-            result.success ? 'Succès' : 'Erreur',
-            result.success ? `${result.data?.length || 0} résultats trouvés` : result.error
-          );
-        }},
+        {
+          text: 'Connexion', onPress: async () => {
+            const result = await testAPI.testConnection();
+            Alert.alert(
+              result.success ? 'Succès' : 'Erreur',
+              result.success ? 'YouTube connecté !' : result.error
+            );
+          }
+        },
+        {
+          text: 'Recherche', onPress: async () => {
+            const result = await testAPI.testSearch('music');
+            Alert.alert(
+              result.success ? 'Succès' : 'Erreur',
+              result.success ? `${result.data?.length || 0} résultats trouvés` : result.error
+            );
+          }
+        },
+        {
+          text: 'Détails vidéo', onPress: async () => {
+            const result = await testAPI.testVideoDetails();
+            Alert.alert(
+              result.success ? 'Succès' : 'Erreur',
+              result.success ? `Vidéo: ${result.data?.title || 'Inconnue'}` : result.error
+            );
+          }
+        },
         { text: 'Cache', onPress: showCacheStats },
         { text: 'Annuler', style: 'cancel' }
       ]
@@ -72,22 +86,24 @@ const MusicApp = () => {
       '📊 Cache Audio',
       `Fichiers: ${stats.fileCount}\nTaille: ${stats.totalSizeMB}MB / ${stats.maxSizeMB}MB\nDossier: ${stats.cacheDir}`,
       [
-        { text: 'Vider le cache', onPress: async () => {
-          const cleared = await audioCache.clearCache();
-          Alert.alert(cleared ? 'Succès' : 'Erreur', cleared ? 'Cache vidé !' : 'Erreur lors du vidage');
-        }, style: 'destructive' },
+        {
+          text: 'Vider le cache', onPress: async () => {
+            const cleared = await audioCache.clearCache();
+            Alert.alert(cleared ? 'Succès' : 'Erreur', cleared ? 'Cache vidé !' : 'Erreur lors du vidage');
+          }, style: 'destructive'
+        },
         { text: 'OK' }
       ]
     );
   };
 
   const renderSongItem = ({ item }) => (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={styles.songItem}
       onPress={() => handleSongSelect(item)}
     >
-      <Image 
-        source={{ uri: item.thumbnails?.[0]?.url }} 
+      <Image
+        source={{ uri: item.thumbnails?.[0]?.url }}
         style={styles.thumbnail}
       />
       <View style={styles.songInfo}>
@@ -95,7 +111,7 @@ const MusicApp = () => {
           {item.title}
         </Text>
         <Text style={styles.songArtist} numberOfLines={1}>
-          {item.artists?.[0]?.name || 'Artiste inconnu'}
+          {item.channelTitle || item.artists?.[0]?.name || 'Artiste inconnu'}
         </Text>
       </View>
       <Ionicons name="play-circle" size={24} color="#1DB954" />
@@ -104,6 +120,8 @@ const MusicApp = () => {
 
   return (
     <View style={styles.container}>
+      {/* YouTube Player Info */}
+      <YouTubePlayerInfo />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={testAPIConnection}>
@@ -141,10 +159,12 @@ const MusicApp = () => {
 
       {/* Music Player */}
       {currentSong && (
-        <MusicPlayer 
-          song={currentSong}
-          onClose={() => setCurrentSong(null)}
-        />
+        <View style={styles.playerOverlay}>
+          <MusicPlayer
+            song={currentSong}
+            onClose={() => setCurrentSong(null)}
+          />
+        </View>
       )}
 
       {/* Playlist Manager */}
@@ -222,6 +242,14 @@ const styles = StyleSheet.create({
     color: '#b3b3b3',
     fontSize: 14,
     marginTop: 2,
+  },
+  playerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
   },
 });
 

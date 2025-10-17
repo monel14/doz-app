@@ -6,297 +6,202 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
-  Alert
+  Animated,
+  Platform,
+  Modal,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import { musicAPI } from '../services/api';
-import audioCache from '../services/audioCache';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { LinearGradient } from 'expo-linear-gradient';
+import youtubePlayer from '../services/youtubePlayer';
 
-// Supprimer le warning expo-av (on sait qu'il est déprécié)
-console.disableYellowBox = true;
+const { width, height } = Dimensions.get('window');
 
-const { width } = Dimensions.get('window');
-
-const MusicPlayer = ({ song, onClose }) => {
-  const [sound, setSound] = useState(null);
+const MusicPlayer = ({ song, onClose, visible }) => {
+  const [rotation] = useState(new Animated.Value(0));
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(240);
+  const [audioSource, setAudioSource] = useState(null);
+
+  const player = useAudioPlayer(audioSource);
+  const status = useAudioPlayerStatus(player);
+
+  const currentPlaying = Platform.OS === 'web' ? isPlaying : (status.playing || false);
+  const currentPosition = Platform.OS === 'web' ? position : (status.currentTime || 0);
+  const currentDuration = Platform.OS === 'web' ? duration : (status.duration || 0);
 
   useEffect(() => {
-    loadAudio();
-    return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
-  }, [song]);
-
-  const loadAudio = async () => {
-    try {
-      console.log('🎵 Chargement audio pour:', song.title);
-      
-      // Vérifier d'abord le cache local
-      const cacheCheck = await audioCache.isCached(song.videoId);
-      
-      let audioUri;
-      let cacheInfo = '';
-      
-      if (cacheCheck.cached) {
-        // Utiliser le fichier en cache
-        audioUri = cacheCheck.filePath;
-        cacheInfo = `depuis le cache local (${Math.round(cacheCheck.age / 1000 / 60)}min)`;
-        console.log('🎵 Audio trouvé en cache local');
-      } else {
-        // Obtenir l'URL depuis l'API et télécharger
-        console.log('📥 Audio non en cache, récupération depuis l\'API...');
-        const response = await musicAPI.getStreamUrl(song.videoId);
-        
-        if (!response || !response.audio_url) {
-          throw new Error('URL audio non disponible');
-        }
-
-        // Télécharger et mettre en cache
-        const cacheResult = await audioCache.getAudioFile(
-          song.videoId, 
-          response.audio_url, 
-          song.title
-        );
-        
-        if (cacheResult.success) {
-          audioUri = cacheResult.filePath;
-          cacheInfo = cacheResult.fromCache ? 'depuis le cache' : 'téléchargé et mis en cache';
-          console.log('📁 Fichier local:', audioUri);
-        } else {
-          // Fallback: utiliser l'URL directe (streaming)
-          audioUri = response.audio_url;
-          cacheInfo = 'streaming direct (cache échoué)';
-          console.log('🌐 Streaming direct:', audioUri);
-        }
-      }
-
-      console.log('🔗 Audio prêt:', cacheInfo);
-      
-      // Créer le son avec l'URI (locale ou distante)
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { 
-          shouldPlay: false,
-          isLooping: false,
-          volume: 1.0
-        }
-      );
-      
-      setSound(newSound);
-      
-      // Configurer les callbacks de statut
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded) {
-          setPosition(status.positionMillis || 0);
-          setDuration(status.durationMillis || 0);
-          setIsPlaying(status.isPlaying || false);
-          
-          if (status.didJustFinish) {
-            setIsPlaying(false);
-            setPosition(0);
-          }
-        }
-      });
-
-      console.log('✅ Audio chargé avec succès');
-      
-      // Afficher les stats du cache si demandé
-      const stats = await audioCache.getCacheStats();
-      console.log('📊 Stats cache:', `${stats.fileCount} fichiers, ${stats.totalSizeMB}MB`);
-      
-      console.log('✅ Audio chargé avec succès');
-      
-    } catch (error) {
-      console.error('❌ Erreur chargement audio:', error);
-      
-      let errorMessage = 'Mode démonstration actif.\n\nL\'interface du lecteur fonctionne parfaitement !\n\nPour l\'audio réel, connectez l\'API backend.';
-      
-      if (error.message.includes('extractors')) {
-        errorMessage = 'Mode démo - Format audio non supporté.\n\nL\'interface fonctionne correctement !';
-      } else if (error.message.includes('Network')) {
-        errorMessage = 'Mode démo - API non accessible.\n\nToutes les fonctionnalités de l\'interface sont opérationnelles !';
-      }
-      
-      Alert.alert(
-        '🎧 Mode Démonstration', 
-        errorMessage,
-        [
-          { text: 'Continuer en mode démo', onPress: () => {
-            // Simuler un lecteur qui fonctionne sans audio
-            setIsPlaying(false);
-            setDuration(180000); // 3 minutes
-            setPosition(0);
-          }},
-          { text: 'Fermer', onPress: onClose }
-        ]
-      );
+    if (currentPlaying) {
+      Animated.loop(
+        Animated.timing(rotation, {
+          toValue: 1,
+          duration: 8000,
+          useNativeDriver: true,
+        })
+      ).start();
+    } else {
+      rotation.stopAnimation();
     }
+  }, [currentPlaying]);
+
+  const rotate = rotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
   };
 
-  const togglePlayPause = async () => {
-    if (!sound) return;
-
-    try {
+  const togglePlayPause = () => {
+    if (Platform.OS === 'web') {
       if (isPlaying) {
-        await sound.pauseAsync();
+        youtubePlayer.pause();
+        setIsPlaying(false);
       } else {
-        await sound.playAsync();
+        youtubePlayer.play();
+        setIsPlaying(true);
       }
-    } catch (error) {
-      console.error('Erreur de lecture:', error);
+    } else {
+      if (!player) return;
+      if (status.playing) player.pause();
+      else player.play();
     }
-  };
-
-  const formatTime = (milliseconds) => {
-    const seconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="chevron-down" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>En cours de lecture</Text>
-        <View style={{ width: 24 }} />
-      </View>
+    <Modal visible={visible} animationType="slide">
+      <LinearGradient
+        colors={['#121212', '#1a1a1a', '#000']}
+        style={styles.container}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose}>
+            <Ionicons name="chevron-down" size={28} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>En cours de lecture</Text>
+          <View style={{ width: 28 }} />
+        </View>
 
-      <View style={styles.content}>
-        <Image 
-          source={{ uri: song.thumbnails?.[0]?.url }} 
-          style={styles.albumArt}
-        />
-        
-        <Text style={styles.songTitle}>{song.title}</Text>
-        <Text style={styles.artistName}>
-          {song.artists?.[0]?.name || 'Artiste inconnu'}
-        </Text>
+        {/* Album Art */}
+        <View style={styles.centerSection}>
+          <Animated.Image
+            source={{ uri: song.thumbnails?.[0]?.url }}
+            style={[styles.albumArt, { transform: [{ rotate }] }]}
+          />
+          <Text style={styles.songTitle} numberOfLines={1}>{song.title}</Text>
+          <Text style={styles.artistName} numberOfLines={1}>
+            {song.channelTitle || song.artists?.[0]?.name || 'Artiste inconnu'}
+          </Text>
+        </View>
 
+        {/* Progress */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill, 
-                { width: `${(position / duration) * 100}%` }
-              ]} 
+            <View
+              style={[styles.progressFill, { width: `${(currentPosition / currentDuration) * 100}%` }]}
             />
           </View>
           <View style={styles.timeContainer}>
-            <Text style={styles.timeText}>{formatTime(position)}</Text>
-            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+            <Text style={styles.timeText}>{formatTime(currentPosition)}</Text>
+            <Text style={styles.timeText}>{formatTime(currentDuration)}</Text>
           </View>
         </View>
 
+        {/* Controls */}
         <View style={styles.controls}>
-          <TouchableOpacity style={styles.controlButton}>
-            <Ionicons name="play-skip-back" size={30} color="#fff" />
+          <TouchableOpacity onPress={() => {}}>
+            <Ionicons name="play-skip-back" size={32} color="#b3b3b3" />
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.playButton}
-            onPress={togglePlayPause}
-          >
-            <Ionicons 
-              name={isPlaying ? "pause" : "play"} 
-              size={40} 
-              color="#000" 
-            />
+
+          <TouchableOpacity style={styles.playButton} onPress={togglePlayPause}>
+            <Ionicons name={currentPlaying ? 'pause' : 'play'} size={44} color="#000" />
           </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.controlButton}>
-            <Ionicons name="play-skip-forward" size={30} color="#fff" />
+
+          <TouchableOpacity onPress={() => {}}>
+            <Ionicons name="play-skip-forward" size={32} color="#b3b3b3" />
           </TouchableOpacity>
         </View>
-      </View>
-    </View>
+
+        {/* Volume */}
+        <View style={styles.volume}>
+          <Ionicons name="volume-medium" size={20} color="#1DB954" />
+          <Text style={styles.volumeText}>75%</Text>
+        </View>
+      </LinearGradient>
+    </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#121212',
+    flex: 1,
+    paddingTop: 50,
+    paddingHorizontal: 25,
+    justifyContent: 'space-between',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
   },
   headerTitle: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
   },
-  content: {
-    flex: 1,
+  centerSection: {
     alignItems: 'center',
-    paddingHorizontal: 40,
   },
   albumArt: {
-    width: width - 80,
-    height: width - 80,
-    borderRadius: 10,
-    marginBottom: 40,
+    width: width * 0.7,
+    height: width * 0.7,
+    borderRadius: width * 0.35,
+    marginBottom: 20,
   },
   songTitle: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 4,
   },
   artistName: {
     color: '#b3b3b3',
-    fontSize: 18,
+    fontSize: 16,
     textAlign: 'center',
-    marginBottom: 40,
   },
   progressContainer: {
-    width: '100%',
-    marginBottom: 40,
+    marginVertical: 20,
   },
   progressBar: {
-    height: 4,
-    backgroundColor: '#404040',
-    borderRadius: 2,
-    marginBottom: 10,
+    height: 3,
+    backgroundColor: '#333',
+    borderRadius: 3,
   },
   progressFill: {
-    height: '100%',
+    height: 3,
     backgroundColor: '#1DB954',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   timeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 6,
   },
   timeText: {
-    color: '#b3b3b3',
+    color: '#888',
     fontSize: 12,
   },
   controls: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  controlButton: {
-    padding: 20,
+    alignItems: 'center',
+    gap: 40,
   },
   playButton: {
     width: 80,
@@ -305,7 +210,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#1DB954',
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 20,
+  },
+  volume: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  volumeText: {
+    color: '#1DB954',
+    fontSize: 14,
   },
 });
 

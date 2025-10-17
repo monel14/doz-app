@@ -1,35 +1,35 @@
 import { musicAPI } from '../services/api';
+import youtubeService from '../services/youtubeService';
 
 export const testAPI = {
-  // Test de santé simple
+  // Test de santé YouTube
   testHealth: async () => {
     try {
-      console.log('🔍 Test de santé de l\'API...');
-      const response = await fetch('http://192.168.1.133:5000/health');
-      const data = await response.json();
-      console.log('✅ API en bonne santé');
-      return { success: true, data };
+      console.log('🔍 Test de santé YouTube...');
+      const results = await youtubeService.searchVideos('test', 1);
+      console.log('✅ YouTube accessible');
+      return { success: true, data: results };
     } catch (error) {
-      console.error('❌ Erreur de santé API:', error);
+      console.error('❌ Erreur de santé YouTube:', error);
       return { success: false, error: error.message };
     }
   },
 
-  // Test de base de l'API
+  // Test de connexion (recherche simple)
   testConnection: async () => {
     try {
-      console.log('🔍 Test de connexion à l\'API...');
+      console.log('🔍 Test de connexion YouTube...');
       const charts = await musicAPI.getCharts();
-      console.log('✅ API connectée avec succès');
+      console.log('✅ YouTube connecté avec succès');
       return { success: true, data: charts };
     } catch (error) {
-      console.error('❌ Erreur de connexion API:', error);
+      console.error('❌ Erreur de connexion YouTube:', error);
       return { success: false, error: error.message };
     }
   },
 
   // Test de recherche
-  testSearch: async (query = 'test') => {
+  testSearch: async (query = 'music') => {
     try {
       console.log(`🔍 Test de recherche: "${query}"`);
       const results = await musicAPI.searchMusic(query, 'songs', 5);
@@ -50,6 +50,19 @@ export const testAPI = {
       return { success: true, data: streamData };
     } catch (error) {
       console.error('❌ Erreur de streaming:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Test des détails d'une vidéo
+  testVideoDetails: async (videoId = 'dQw4w9WgXcQ') => {
+    try {
+      console.log(`🔍 Test détails vidéo: ${videoId}`);
+      const details = await musicAPI.getSongInfo(videoId);
+      console.log('✅ Détails obtenus:', details?.title || 'Pas de titre');
+      return { success: true, data: details };
+    } catch (error) {
+      console.error('❌ Erreur détails vidéo:', error);
       return { success: false, error: error.message };
     }
   }

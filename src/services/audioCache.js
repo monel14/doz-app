@@ -1,15 +1,36 @@
-import * as FileSystem from 'expo-file-system/legacy';
-// Utiliser l'API legacy pour éviter les warnings
+import { Platform } from 'react-native';
+
+// Détection de la plateforme pour le cache
+const isWeb = Platform.OS === 'web';
+
+// Import conditionnel du FileSystem
+let FileSystem = null;
+if (!isWeb) {
+  try {
+    FileSystem = require('expo-file-system/legacy');
+  } catch (error) {
+    console.log('📁 FileSystem non disponible sur cette plateforme');
+  }
+}
 
 class AudioCacheService {
   constructor() {
-    this.cacheDir = `${FileSystem.documentDirectory}audioCache/`;
-    this.maxCacheSize = 100 * 1024 * 1024; // 100MB max
-    this.maxCacheAge = 24 * 60 * 60 * 1000; // 24 heures
-    this.initCache();
+    this.isWebPlatform = isWeb;
+    this.webCache = new Map(); // Cache en mémoire pour le web
+    
+    if (!this.isWebPlatform && FileSystem) {
+      this.cacheDir = `${FileSystem.documentDirectory}audioCache/`;
+      this.maxCacheSize = 100 * 1024 * 1024; // 100MB max
+      this.maxCacheAge = 24 * 60 * 60 * 1000; // 24 heures
+      this.initCache();
+    } else {
+      console.log('📁 Mode web - cache en mémoire activé');
+    }
   }
 
   async initCache() {
+    if (this.isWebPlatform) return;
+    
     try {
       // Créer le dossier cache (ne fait rien s'il existe déjà)
       await FileSystem.makeDirectoryAsync(this.cacheDir, { intermediates: true });
@@ -26,6 +47,22 @@ class AudioCacheService {
 
   // Vérifier si un fichier est en cache et valide
   async isCached(videoId) {
+    if (this.isWebPlatform) {
+      // Cache web en mémoire
+      const cached = this.webCache.get(videoId);
+      if (cached && Date.now() - cached.timestamp < (10 * 60 * 1000)) { // 10 min pour le web
+        return { 
+          cached: true, 
+          filePath: cached.url,
+          size: 'unknown',
+          age: Date.now() - cached.timestamp 
+        };
+      }
+      return { cached: false };
+    }
+
+    if (!FileSystem) return { cached: false };
+
     try {
       const fileName = this.getFileName(videoId);
       const filePath = `${this.cacheDir}${fileName}`;
@@ -57,6 +94,31 @@ class AudioCacheService {
 
   // Télécharger et mettre en cache un fichier audio
   async downloadAndCache(videoId, audioUrl, title = 'Unknown') {
+    if (this.isWebPlatform) {
+      // Sur web, on met juste l'URL en cache mémoire
+      this.webCache.set(videoId, {
+        url: audioUrl,
+        title,
+        timestamp: Date.now()
+      });
+      
+      console.log('✅ Audio mis en cache web:', title);
+      return {
+        success: true,
+        filePath: audioUrl,
+        title,
+        cached: true,
+        size: 'unknown'
+      };
+    }
+
+    if (!FileSystem) {
+      return {
+        success: false,
+        error: 'FileSystem non disponible'
+      };
+    }
+
     try {
       // Valider l'URL
       if (!audioUrl || !audioUrl.startsWith('http')) {
@@ -149,6 +211,23 @@ class AudioCacheService {
 
   // Nettoyer le cache (supprimer les vieux fichiers)
   async cleanupCache() {
+    if (this.isWebPlatform) {
+      // Nettoyer le cache web si trop d'entrées
+      if (this.webCache.size > 50) {
+        const entries = Array.from(this.webCache.entries());
+        entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+        
+        // Garder seulement les 30 plus récents
+        for (let i = 0; i < entries.length - 30; i++) {
+          this.webCache.delete(entries[i][0]);
+        }
+        console.log('🧹 Cache web nettoyé');
+      }
+      return;
+    }
+
+    if (!FileSystem) return;
+
     try {
       const files = await FileSystem.readDirectoryAsync(this.cacheDir);
       let totalSize = 0;
@@ -193,6 +272,20 @@ class AudioCacheService {
 
   // Obtenir les statistiques du cache
   async getCacheStats() {
+    if (this.isWebPlatform) {
+      return {
+        fileCount: this.webCache.size,
+        totalSize: 0,
+        totalSizeMB: 0,
+        maxSizeMB: 0,
+        cacheDir: 'web-memory-cache'
+      };
+    }
+
+    if (!FileSystem) {
+      return { fileCount: 0, totalSize: 0, totalSizeMB: 0 };
+    }
+
     try {
       const files = await FileSystem.readDirectoryAsync(this.cacheDir);
       let totalSize = 0;
@@ -222,6 +315,14 @@ class AudioCacheService {
 
   // Vider complètement le cache
   async clearCache() {
+    if (this.isWebPlatform) {
+      this.webCache.clear();
+      console.log('🗑️ Cache web vidé complètement');
+      return true;
+    }
+
+    if (!FileSystem) return false;
+
     try {
       await FileSystem.deleteAsync(this.cacheDir);
       await this.initCache();

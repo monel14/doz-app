@@ -1,22 +1,12 @@
-import axios from 'axios';
+import youtubeService from './youtubeService';
 
-const API_BASE_URL = 'http://192.168.1.133:5000'; // API locale
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-});
-
+// Service API unifié qui utilise YouTube directement
 export const musicAPI = {
   // Rechercher de la musique
   searchMusic: async (query, filter = 'songs', limit = 20) => {
     try {
-      const response = await api.post('/search', {
-        query,
-        filter,
-        limit
-      });
-      return response.data.results;
+      const results = await youtubeService.searchVideos(query, limit);
+      return results;
     } catch (error) {
       console.error('Erreur lors de la recherche:', error);
       throw error;
@@ -26,19 +16,19 @@ export const musicAPI = {
   // Obtenir les informations d'une chanson
   getSongInfo: async (videoId) => {
     try {
-      const response = await api.get(`/song/${videoId}`);
-      return response.data;
+      const songInfo = await youtubeService.getVideoDetails(videoId);
+      return songInfo;
     } catch (error) {
       console.error('Erreur lors de la récupération de la chanson:', error);
       throw error;
     }
   },
 
-  // Obtenir les charts
+  // Obtenir les charts (tendances)
   getCharts: async () => {
     try {
-      const response = await api.get('/charts');
-      return response.data;
+      const charts = await youtubeService.getTrendingVideos(20);
+      return { results: charts };
     } catch (error) {
       console.error('Erreur lors de la récupération des charts:', error);
       throw error;
@@ -48,37 +38,50 @@ export const musicAPI = {
   // Obtenir une playlist
   getPlaylist: async (playlistId) => {
     try {
-      const response = await api.post('/playlist', {
-        playlist_id: playlistId
-      });
-      return response.data;
+      // Pour l'instant, on retourne une playlist vide
+      // Il faudrait implémenter la récupération des vidéos d'une playlist
+      return {
+        playlistId,
+        title: 'Playlist',
+        videos: []
+      };
     } catch (error) {
       console.error('Erreur lors de la récupération de la playlist:', error);
       throw error;
     }
   },
 
-  // Obtenir l'URL de streaming audio
+  // Obtenir l'URL de streaming audio (YouTube Player API uniquement)
   getStreamUrl: async (videoId) => {
     try {
-      const response = await api.get(`/stream/${videoId}`);
-      return response.data; // Retourne l'objet complet avec audio_url, title, etc.
+      // Utiliser YouTube Player API directement
+      const streamData = youtubeService.getStreamUrl(videoId);
+      return {
+        ...streamData,
+        source: 'youtube-player-api',
+        note: 'Utilise YouTube Player API pour la lecture directe'
+      };
     } catch (error) {
       console.error('Erreur lors de la récupération de l\'URL audio:', error);
-
-      // Gestion spécifique des erreurs d'extraction
-      if (error.response?.status === 500 && error.response?.data?.detail?.includes('extraction')) {
-        throw new Error('Impossible d\'extraire l\'audio pour cette vidéo. Essayez une autre chanson.');
-      }
-
       throw error;
     }
   },
 
   // Obtenir l'URL de téléchargement direct
   getDownloadUrl: (videoId) => {
-    return `${API_BASE_URL}/download/${videoId}`;
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  },
+
+  // Rechercher des playlists
+  searchPlaylists: async (query, limit = 10) => {
+    try {
+      const playlists = await youtubeService.searchPlaylists(query, limit);
+      return playlists;
+    } catch (error) {
+      console.error('Erreur lors de la recherche de playlists:', error);
+      throw error;
+    }
   }
 };
 
-export default api;
+export default youtubeService;
